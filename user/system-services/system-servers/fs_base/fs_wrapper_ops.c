@@ -992,7 +992,7 @@ int fs_wrapper_fmap(badge_t client_badge, ipc_msg_t *ipc_msg,
                 return -EINVAL;
         }
 
-        if (flags & (~(MAP_SHARED | MAP_PRIVATE | MAP_FIXED_NOREPLACE))) {
+        if (flags & (~(MAP_SHARED | MAP_PRIVATE | MAP_FIXED_NOREPLACE | MAP_LLM))) {
                 fs_debug_trace_fswrapper("unsupported flags=%d\n", flags);
                 return -EINVAL;
         }

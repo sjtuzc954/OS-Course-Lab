@@ -72,16 +72,12 @@ vaddr_t fs_wrapper_fmap_get_page_addr(struct fs_vnode *vnode, off_t offset)
         return (vaddr_t)page_buf;
 }
 
-static int predict_prefetch_pages(size_t fault_offset,
+static int predict_prefetch_pages(size_t fault_area_off,
                                   size_t *prefetch_offsets) {
-        int ret;
-        size_t fault_page_idx;
         int i;
 
-        fault_page_idx = fault_area_off / PAGE_SIZE;
-
         for (i = 0; i < MAX_LLM_PAGE_NUM; i++) {
-                prefetch_offsets[i] = fault_offset + 2 * PAGE_SIZE * i;
+                prefetch_offsets[i] = fault_area_off + 2 * PAGE_SIZE * i;
         }
         return 0;
 }
@@ -171,6 +167,7 @@ static int handle_one_fault(badge_t fault_badge, vaddr_t fault_va)
         }
 
         if (flags & MAP_LLM) {
+        // if (false) {
                 /* predict prefetch pages and map them in one fault */
                 ret = predict_prefetch_pages(area_off, prefetch_offsets);
                 if (ret < 0) {
@@ -196,7 +193,8 @@ static int handle_one_fault(badge_t fault_badge, vaddr_t fault_va)
                                 server_page_addr, 
                                 copy, 
                                 map_perm, 
-                                completed);
+                                completed,
+                                fault_va);
                         if (ret < 0) {
                                 BUG_ON("this call should always be success here\n");
                         }

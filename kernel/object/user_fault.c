@@ -252,7 +252,7 @@ int sys_user_fault_map(badge_t client_badge, vaddr_t fault_va, vaddr_t remap_va,
 
 /* Only for Lab7. Enqueue pending thread only if completed=true */
 int sys_user_fault_map_batched(badge_t client_badge, vaddr_t fault_va, vaddr_t remap_va,
-        bool copy, unsigned long perm, bool completed)
+        bool copy, unsigned long perm, bool completed, vaddr_t orig_fault_va)
 {
         struct fmap_fault_pool *current_pool;
         struct fault_pending_thread *pending_thread;
@@ -278,16 +278,18 @@ int sys_user_fault_map_batched(badge_t client_badge, vaddr_t fault_va, vaddr_t r
 
         /* Find corresponding pending thread */
         lock(&current_pool->lock);
-        pending_thread = get_current_pending_thread(client_badge, fault_va);
+        pending_thread = get_current_pending_thread(client_badge, orig_fault_va);
         if (!pending_thread) {
                 unlock(&current_pool->lock);
                 return -EINVAL;
         }
-        list_del(&pending_thread->node);
+        if (completed)
+                list_del(&pending_thread->node);
         unlock(&current_pool->lock);
 
         thread_to_wake = pending_thread->thread;
-        kfree(pending_thread);
+        if (completed)
+                kfree(pending_thread);
 
         /* Get handler space va, which page will be mapped in fault va */
         if (remap_va) {
