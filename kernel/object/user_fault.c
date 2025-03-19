@@ -10,6 +10,8 @@
  * Mulan PSL v2 for more details.
  */
 
+#include "common/list.h"
+#include "common/macro.h"
 #include <arch/mmu.h>
 #include <arch/sync.h>
 #include <mm/cache.h>
@@ -267,6 +269,9 @@ int sys_user_fault_map_batched(badge_t client_badge, vaddr_t fault_va, vaddr_t r
         bool page_allocated = false;
         long rss = 0;
 
+        struct llm_page *llm_page;
+        bool is_same_llm_page_found = false;
+
         current_pool = get_current_fault_pool();
 
         if (!current_pool) {
@@ -334,29 +339,63 @@ int sys_user_fault_map_batched(badge_t client_badge, vaddr_t fault_va, vaddr_t r
         if (fault_vmspace == NULL) {
                 return -EINVAL;
         }
+        lock(&fault_vmspace->vmspace_lock);
+        fault_vmr = find_vmr_for_va(fault_vmspace, fault_va);
+        if (fault_vmr == NULL) {
+                unlock(&fault_vmspace->vmspace_lock);
+                obj_put(fault_vmspace);
+                return -EINVAL;
+        }
         if (page_allocated) {
-                lock(&fault_vmspace->vmspace_lock);
-                fault_vmr = find_vmr_for_va(fault_vmspace, fault_va);
-                if (fault_vmr == NULL) {
-                        unlock(&fault_vmspace->vmspace_lock);
-                        obj_put(fault_vmspace);
-                        return -EINVAL;
-                }
                 fault_pmo = fault_vmr->pmo;
                 commit_page_to_pmo(fault_pmo, new_pa, new_pa);
         }
+        
+        for_each_in_list(llm_page, struct llm_page, node, &fault_vmr->llm_pages) {
+                if (llm_page->vaddr == fault_va) {
+                        is_same_llm_page_found = true;
+                        break;
+                }
+        }
+        /* if fault_va already in lru list, move it to the end 
+           else, allocate a new llm_page and append to lru list */
+        if (is_same_llm_page_found) {
+                list_del(&llm_page->node);
+        } else {
+                llm_page = (struct llm_page *)kmalloc(sizeof(*llm_page));
+                if (!llm_page) {
+                        unlock(&fault_vmspace->vmspace_lock);
+                        obj_put(fault_vmspace);
+                        return -ENOMEM;
+                }
+                llm_page->vaddr = fault_va;
+        }
+        list_append(&llm_page->node, &fault_vmr->llm_pages);
 
         lock(&fault_vmspace->pgtbl_lock);
         ret = map_range_in_pgtbl(
                 fault_vmspace->pgtbl, fault_va, new_pa, PAGE_SIZE, perm, &rss);
         fault_vmspace->rss += rss;
         BUG_ON(ret);
-        unlock(&fault_vmspace->pgtbl_lock);
-
-        if (page_allocated) {
-                unlock(&fault_vmspace->vmspace_lock);
+        
+        /* if fault_va is new, increment num_llm_pages, 
+           and unmap the least recently mapped page if list is full */
+        if (!is_same_llm_page_found) {
+                if (fault_vmr->num_llm_pages == MAX_LLM_PAGE_NUM) {
+                        llm_page = container_of(fault_vmr->llm_pages.next, struct llm_page, node);
+                        rss = 0;
+                        ret = unmap_range_in_pgtbl(fault_vmspace->pgtbl, llm_page->vaddr, PAGE_SIZE, &rss);
+                        fault_vmspace->rss += rss;
+                        BUG_ON(ret);
+                        list_del(&llm_page->node);
+                        kfree(llm_page);
+                } else {
+                        fault_vmr->num_llm_pages++;
+                }
         }
-
+        unlock(&fault_vmspace->pgtbl_lock);
+        
+        unlock(&fault_vmspace->vmspace_lock);        
         obj_put(fault_vmspace);
 
         switch_thread_vmspace_to(thread_to_wake);
