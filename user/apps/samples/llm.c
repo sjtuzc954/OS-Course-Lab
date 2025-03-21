@@ -29,14 +29,16 @@ int main() {
     }
 
     int pages_to_access[] = {0, 2, 4, 6};
+    // for (int j = 0; j < 2; j++) {
     for (size_t i = 0; i < sizeof(pages_to_access) / sizeof(pages_to_access[0]); i++) {
         int page_number = pages_to_access[i];
         map[page_number * PAGE_SIZE] = 'A' + page_number;  // 将每个页面的第一个字节设置为不同的字符
         printf("Accessed page %d, first byte: %c\n", page_number, map[page_number * PAGE_SIZE]);
     }
+    // }
 
     // 解除映射
-    if (munmap(map, 9 * PAGE_SIZE) == -1) {
+    if (munmap(map, 8 * PAGE_SIZE) == -1) {
         perror("munmap");
     }
 

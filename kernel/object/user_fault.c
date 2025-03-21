@@ -382,6 +382,7 @@ int sys_user_fault_map_batched(badge_t client_badge, vaddr_t fault_va, vaddr_t r
            and unmap the least recently mapped page if list is full */
         if (!is_same_llm_page_found) {
                 if (fault_vmr->num_llm_pages == MAX_LLM_PAGE_NUM) {
+                        // printk("unmap 0x%lx\n", llm_page->vaddr);
                         llm_page = container_of(fault_vmr->llm_pages.next, struct llm_page, node);
                         rss = 0;
                         ret = unmap_range_in_pgtbl(fault_vmspace->pgtbl, llm_page->vaddr, PAGE_SIZE, &rss);

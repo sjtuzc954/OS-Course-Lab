@@ -100,6 +100,7 @@ static int handle_one_fault(badge_t fault_badge, vaddr_t fault_va)
 
         fs_debug_trace_fswrapper(
                 "badge=0x%x, va=0x%lx\n", fault_badge, fault_va);
+        // printf("page fault at 0x%lx\n", fault_va);
 
         /* Find mapping area info */
         ret = fmap_area_find(fault_badge,
