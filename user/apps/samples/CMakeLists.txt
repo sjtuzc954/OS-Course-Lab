@@ -12,6 +12,7 @@ add_user_executable(client.bin client.c)
 add_user_executable(server.bin server.c)
 
 add_user_executable(hello_world.bin hello_world.c)
+add_user_executable(llm.bin llm.c)
 
 add_user_executable(cat.bin cat.c)
 

@@ -10,6 +10,8 @@
  * Mulan PSL v2 for more details.
  */
 
+#include "common/list.h"
+#include "common/macro.h"
 #include <arch/mmu.h>
 #include <arch/sync.h>
 #include <mm/cache.h>
@@ -246,6 +248,167 @@ int sys_user_fault_map(badge_t client_badge, vaddr_t fault_va, vaddr_t remap_va,
 
         /* Pending thread should come back to scheduler */
         BUG_ON(sched_enqueue(thread_to_wake));
+
+        return 0;
+}
+
+/* Only for Lab7. Enqueue pending thread only if completed=true */
+int sys_user_fault_map_batched(badge_t client_badge, vaddr_t fault_va, vaddr_t remap_va,
+        bool copy, unsigned long perm, bool completed, vaddr_t orig_fault_va)
+{
+        struct fmap_fault_pool *current_pool;
+        struct fault_pending_thread *pending_thread;
+        struct thread *thread_to_wake;
+        struct vmspace *handler_vmspace;
+        struct vmspace *fault_vmspace;
+        struct vmregion *fault_vmr;
+        struct pmobject *fault_pmo;
+        paddr_t pa, new_pa;
+        void *new_page;
+        int ret;
+        bool page_allocated = false;
+        long rss = 0;
+
+        struct llm_page *llm_page;
+        bool is_same_llm_page_found = false;
+
+        current_pool = get_current_fault_pool();
+
+        if (!current_pool) {
+                return -EINVAL;
+        }
+
+        fault_va = ROUND_DOWN(fault_va, PAGE_SIZE);
+        remap_va = ROUND_DOWN(remap_va, PAGE_SIZE);
+
+        /* Find corresponding pending thread */
+        lock(&current_pool->lock);
+        pending_thread = get_current_pending_thread(client_badge, orig_fault_va);
+        if (!pending_thread) {
+                unlock(&current_pool->lock);
+                return -EINVAL;
+        }
+        if (completed)
+                list_del(&pending_thread->node);
+        unlock(&current_pool->lock);
+
+        thread_to_wake = pending_thread->thread;
+        if (completed)
+                kfree(pending_thread);
+
+        /* Get handler space va, which page will be mapped in fault va */
+        if (remap_va) {
+                handler_vmspace = obj_get(
+                        current_cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
+                if (handler_vmspace == NULL) {
+                        return -EINVAL;
+                }
+                lock(&handler_vmspace->pgtbl_lock);
+                ret = query_in_pgtbl(
+                        handler_vmspace->pgtbl, remap_va, &pa, NULL);
+                if (ret) {
+                        /* remap_va is not mapped in handler_vmspace */
+                        unlock(&handler_vmspace->pgtbl_lock);
+                        obj_put(handler_vmspace);
+                        return -EINVAL;
+                }
+                unlock(&handler_vmspace->pgtbl_lock);
+                obj_put(handler_vmspace);
+        }
+
+        /* Decide whether copy the physical page or share */
+        if (!copy) {
+                if (!remap_va)
+                        return -EINVAL;
+                new_pa = pa;
+        } else {
+                new_page = get_pages(0);
+                if (new_page == NULL)
+                        return -EINVAL;
+                if (remap_va)
+                        memcpy(new_page, (void *)phys_to_virt(pa), PAGE_SIZE);
+                else
+                        memset(new_page, 0, PAGE_SIZE);
+                new_pa = (paddr_t)virt_to_phys(new_page);
+                page_allocated = true;
+        }
+
+        /* Fill fault pa with target page's pa */
+        fault_vmspace = obj_get(
+                thread_to_wake->cap_group, VMSPACE_OBJ_ID, TYPE_VMSPACE);
+        if (fault_vmspace == NULL) {
+                return -EINVAL;
+        }
+        lock(&fault_vmspace->vmspace_lock);
+        fault_vmr = find_vmr_for_va(fault_vmspace, fault_va);
+        if (fault_vmr == NULL) {
+                unlock(&fault_vmspace->vmspace_lock);
+                obj_put(fault_vmspace);
+                return -EINVAL;
+        }
+        if (page_allocated) {
+                fault_pmo = fault_vmr->pmo;
+                commit_page_to_pmo(fault_pmo, new_pa, new_pa);
+        }
+        
+        for_each_in_list(llm_page, struct llm_page, node, &fault_vmr->llm_pages) {
+                if (llm_page->vaddr == fault_va) {
+                        is_same_llm_page_found = true;
+                        break;
+                }
+        }
+        /* if fault_va already in lru list, move it to the end 
+           else, allocate a new llm_page and append to lru list */
+        if (is_same_llm_page_found) {
+                list_del(&llm_page->node);
+        } else {
+                llm_page = (struct llm_page *)kmalloc(sizeof(*llm_page));
+                if (!llm_page) {
+                        unlock(&fault_vmspace->vmspace_lock);
+                        obj_put(fault_vmspace);
+                        return -ENOMEM;
+                }
+                llm_page->vaddr = fault_va;
+        }
+        list_append(&llm_page->node, &fault_vmr->llm_pages);
+
+        lock(&fault_vmspace->pgtbl_lock);
+        ret = map_range_in_pgtbl(
+                fault_vmspace->pgtbl, fault_va, new_pa, PAGE_SIZE, perm, &rss);
+        fault_vmspace->rss += rss;
+        BUG_ON(ret);
+        
+        /* if fault_va is new, increment num_llm_pages, 
+           and unmap the least recently mapped page if list is full */
+        if (!is_same_llm_page_found) {
+                if (fault_vmr->num_llm_pages == MAX_LLM_PAGE_NUM) {
+                        // printk("unmap 0x%lx\n", llm_page->vaddr);
+                        llm_page = container_of(fault_vmr->llm_pages.next, struct llm_page, node);
+                        rss = 0;
+                        ret = unmap_range_in_pgtbl(fault_vmspace->pgtbl, llm_page->vaddr, PAGE_SIZE, &rss);
+                        fault_vmspace->rss += rss;
+                        BUG_ON(ret);
+                        list_del(&llm_page->node);
+                        kfree(llm_page);
+                } else {
+                        fault_vmr->num_llm_pages++;
+                }
+        }
+        unlock(&fault_vmspace->pgtbl_lock);
+        
+        unlock(&fault_vmspace->vmspace_lock);        
+        obj_put(fault_vmspace);
+
+        switch_thread_vmspace_to(thread_to_wake);
+        if (perm & VMR_EXEC) {
+                arch_flush_cache(fault_va, PAGE_SIZE, SYNC_IDCACHE);
+        }
+        switch_thread_vmspace_to(current_thread);
+
+        if (completed)
+                /* Pending thread should come back to scheduler */
+                /* wake up pending thread only if prefetching is completed */
+                BUG_ON(sched_enqueue(thread_to_wake));
 
         return 0;
 }

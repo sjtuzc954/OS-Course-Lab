@@ -217,6 +217,7 @@ const void *syscall_table[NR_SYSCALL] = {
         /* - page fault */
         [CHCORE_SYS_user_fault_register] = sys_user_fault_register,
         [CHCORE_SYS_user_fault_map] = sys_user_fault_map,
+        [CHCORE_SYS_user_fault_map_batched] = sys_user_fault_map_batched,
 
         /* POSIX */
         /* - time */

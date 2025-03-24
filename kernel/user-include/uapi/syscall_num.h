@@ -76,6 +76,8 @@
 /* - page fault */
 #define CHCORE_SYS_user_fault_register     41
 #define CHCORE_SYS_user_fault_map          42
+/* Only for Lab7 */
+#define CHCORE_SYS_user_fault_map_batched  60
 
 /* POSIX */
 /* - time */

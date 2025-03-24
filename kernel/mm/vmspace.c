@@ -52,6 +52,9 @@ static struct vmregion *alloc_vmregion(vaddr_t start, size_t len, size_t offset,
 
         init_list_head(&vmr->cow_private_pages);
 
+        init_list_head(&vmr->llm_pages);
+        vmr->num_llm_pages = 0;
+
         return vmr;
 }
 
@@ -78,9 +81,13 @@ int vmregion_record_cow_private_page(struct vmregion *vmr, vaddr_t vaddr,
 static void free_vmregion(struct vmregion *vmr)
 {
         struct cow_private_page *cur_record = NULL, *tmp = NULL;
+        struct llm_page *llm_page = NULL, *tmp2 = NULL;
 
         for_each_in_list_safe (cur_record, tmp, node, &vmr->cow_private_pages) {
                 free_cow_private_page(cur_record);
+        }
+        for_each_in_list_safe(llm_page, tmp2, node, &vmr->llm_pages) {
+                kfree(llm_page);
         }
         list_del(&vmr->mapping_list_node);
         kfree((void *)vmr);
@@ -494,6 +501,7 @@ int split_vmr_locked(struct vmspace *vmspace, struct vmregion *old_vmr,
         vaddr_t new_vmr_start;
         size_t old_vmr_size, new_vmr_size, new_vmr_offset;
         struct cow_private_page *cur_record = NULL, *tmp = NULL;
+        struct llm_page *llm_page = NULL, *tmp2 = NULL;
 
         if ((split_vaddr <= old_vmr->start)
             || (split_vaddr >= old_vmr->start + old_vmr->size)
@@ -520,6 +528,16 @@ int split_vmr_locked(struct vmspace *vmspace, struct vmregion *old_vmr,
                         list_del(&cur_record->node);
                         list_add(&cur_record->node,
                                  &new_vmr->cow_private_pages);
+                }
+        }
+
+        for_each_in_list_safe(
+                llm_page, tmp2, node, &old_vmr->llm_pages) {
+                if (llm_page->vaddr >= split_vaddr) {
+                        list_del(&llm_page->node);
+                        old_vmr->num_llm_pages--;
+                        list_add(&llm_page->node, &new_vmr->llm_pages);
+                        new_vmr->num_llm_pages++;
                 }
         }
 
