@@ -13,6 +13,7 @@
 #include "chcore/proc.h"
 #include "fcntl.h"
 #include "sys/stat.h"
+#include "uapi/memory.h"
 #include <errno.h>
 #include <pthread.h>
 #include <chcore/bug.h>
@@ -1042,7 +1043,29 @@ out_fail:
 int fs_wrapper_funmap(badge_t client_badge, ipc_msg_t *ipc_msg,
                       struct fs_request *fr)
 {
-    return fmap_area_remove(client_badge, (vaddr_t)fr->munmap.addr, fr->munmap.length);
+        int ret;
+        size_t area_off;
+        struct fs_vnode *vnode;
+        off_t file_offset;
+        u64 flags;
+        vmr_prop_t prot;
+
+        ret = fmap_area_find(client_badge,
+                             (vaddr_t)fr->munmap.addr,
+                             &area_off,
+                             &vnode,
+                             &file_offset,
+                             &flags,
+                             &prot);
+        if (ret < 0) {
+                return ret;
+        }
+        if (vnode->pmo_cap != -1 && (flags & MAP_LLM)) {
+                usys_revoke_cap(vnode->pmo_cap, false);
+                vnode->pmo_cap = -1;
+        }
+        ret = fmap_area_remove(client_badge, (vaddr_t)fr->munmap.addr, fr->munmap.length);
+        return ret;
 }
 
 int fs_wrapper_creat(ipc_msg_t *ipc_msg, struct fs_request *fr)

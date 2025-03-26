@@ -98,6 +98,7 @@ static void free_vmregion(struct vmregion *vmr)
                 } else {
                         printk("page fault check passed");
                 }
+                vmr->pmo->page_faults = 0;
         }
         list_del(&vmr->mapping_list_node);
         kfree((void *)vmr);
