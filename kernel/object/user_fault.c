@@ -10,8 +10,6 @@
  * Mulan PSL v2 for more details.
  */
 
-#include "common/list.h"
-#include "common/macro.h"
 #include <arch/mmu.h>
 #include <arch/sync.h>
 #include <mm/cache.h>
@@ -425,6 +423,11 @@ void handle_user_fault(struct pmobject *pmo, vaddr_t fault_va)
                fault_pool->cap_group_badge,
                fault_va);
 
+        
+        /* Lab7 test, track page faults for specified pmo */
+        if (pmo->page_faults >= 0) {
+                pmo->page_faults++;
+        }
         /*
          * Fault thread should pending until user handling finished.
          * Record (fault_badge, fault_va) -> thread here.

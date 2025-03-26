@@ -1014,7 +1014,11 @@ int fs_wrapper_fmap(badge_t client_badge, ipc_msg_t *ipc_msg,
 
         /* Step: Create a PMO_FILE for file, if not created */
         if (vnode->pmo_cap == -1) {
-                pmo_cap = usys_create_pmo(vnode->size, PMO_FILE);
+                if (flags & MAP_LLM) {
+                        pmo_cap = usys_create_pmo(vnode->size, PMO_FILE_LLM);
+                } else {
+                        pmo_cap = usys_create_pmo(vnode->size, PMO_FILE);
+                }
                 if (pmo_cap < 0) {
                         ret = pmo_cap;
                         goto out_remove_mapping;

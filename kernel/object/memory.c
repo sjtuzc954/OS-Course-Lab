@@ -26,6 +26,7 @@
 #include <mm/cache.h>
 
 #include "mmap.h"
+#include "uapi/memory.h"
 
 static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
                     paddr_t paddr);
@@ -598,6 +599,16 @@ static int pmo_init(struct pmobject *pmo, pmo_type_t type, size_t len,
         init_list_head(&pmo->mapping_list);
 
         len = ROUND_UP(len, PAGE_SIZE);
+
+        /* Lab7 test */
+        if (type == PMO_FILE_LLM) {
+                /* Count page faults for this pmo */
+                pmo->page_faults = 0;
+                type = PMO_FILE;
+        } else {
+                /* Do not count page faults for this pmo */
+                pmo->page_faults = -1;
+        }
         pmo->size = len;
         pmo->type = type;
 

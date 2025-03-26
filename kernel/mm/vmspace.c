@@ -78,6 +78,7 @@ int vmregion_record_cow_private_page(struct vmregion *vmr, vaddr_t vaddr,
         return 0;
 }
 
+#define LLM_PAGE_FAULT_THRESHOLD 2
 static void free_vmregion(struct vmregion *vmr)
 {
         struct cow_private_page *cur_record = NULL, *tmp = NULL;
@@ -88,6 +89,15 @@ static void free_vmregion(struct vmregion *vmr)
         }
         for_each_in_list_safe(llm_page, tmp2, node, &vmr->llm_pages) {
                 kfree(llm_page);
+        }
+        /* Lab7 test */
+        if (vmr->pmo->page_faults >= 0) {
+                if (vmr->pmo->page_faults > LLM_PAGE_FAULT_THRESHOLD) {
+                        printk("page fault check failed, page faults: %ld\n",
+                               vmr->pmo->page_faults);
+                } else {
+                        printk("page fault check passed");
+                }
         }
         list_del(&vmr->mapping_list_node);
         kfree((void *)vmr);

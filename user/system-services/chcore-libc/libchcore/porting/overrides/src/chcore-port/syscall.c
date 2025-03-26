@@ -10,7 +10,6 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#include "uapi/syscall_num.h"
 #include <chcore/syscall.h>
 #include <chcore/defs.h>
 #include <chcore/type.h>

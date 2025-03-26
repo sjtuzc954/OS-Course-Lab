@@ -40,7 +40,7 @@ struct vmregion {
         int num_llm_pages;
 };
 
-#define MAX_LLM_PAGE_NUM 2
+#define MAX_LLM_PAGE_NUM 32
 struct llm_page {
         struct list_head node;
         vaddr_t vaddr;
